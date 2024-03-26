@@ -492,8 +492,17 @@ class DependencyHolder(ObjectHolder[Dependency]):
 
     @noPosargs
     @noKwargs
-    def get_include_directories_method(self, args: T.List[TYPE_var], kwargs: TYPE_kwargs) -> T.List[str]:
-        return self.held_object.get_include_dirs()
+    def get_include_directories_method(self, args: T.List[TYPE_var], kwargs: TYPE_kwargs) -> build.IncludeDirs:
+        dirs = self.held_object.get_include_dirs()
+        result = []
+        seen = set()
+        for d in dirs:
+            for i in d.get_incdirs():
+                if os.path.join(d.curdir, i) not in seen:
+                    result.append(os.path.join(d.curdir, i))
+                    seen.add(os.path.join(d.curdir, i))
+
+        return build.IncludeDirs(self.env.source_dir, result, False, False)
 
     @FeatureDeprecated('dependency.get_pkgconfig_variable', '0.56.0',
                        'use dependency.get_variable(pkgconfig : ...) instead')
@@ -711,7 +720,15 @@ class MachineHolder(ObjectHolder['MachineInfo']):
 
 
 class IncludeDirsHolder(ObjectHolder[build.IncludeDirs]):
-    pass
+    def __init__(self, idobj: build.IncludeDirs, interpreter: 'Interpreter'):
+        super().__init__(idobj, interpreter)
+        self.methods.update({'full_paths': self.full_paths_method,
+                             })
+
+    @noPosargs
+    @noKwargs
+    def full_paths_method(self, args: T.List[TYPE_var], kwargs: TYPE_kwargs) -> T.List[str]:
+        return self.held_object.to_source_dirs(self.env.source_dir)
 
 class FileHolder(ObjectHolder[mesonlib.File]):
     def __init__(self, file: mesonlib.File, interpreter: 'Interpreter'):
