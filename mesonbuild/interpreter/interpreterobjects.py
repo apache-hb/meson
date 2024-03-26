@@ -462,6 +462,7 @@ class DependencyHolder(ObjectHolder[Dependency]):
                              'include_type': self.include_type_method,
                              'as_system': self.as_system_method,
                              'as_link_whole': self.as_link_whole_method,
+                             'get_include_directories': self.get_include_directories_method,
                              })
 
     def found(self) -> bool:
@@ -488,6 +489,11 @@ class DependencyHolder(ObjectHolder[Dependency]):
     @noKwargs
     def name_method(self, args: T.List[TYPE_var], kwargs: TYPE_kwargs) -> str:
         return self.held_object.get_name()
+
+    @noPosargs
+    @noKwargs
+    def get_include_directories_method(self, args: T.List[TYPE_var], kwargs: TYPE_kwargs) -> T.List[str]:
+        return self.held_object.get_include_dirs()
 
     @FeatureDeprecated('dependency.get_pkgconfig_variable', '0.56.0',
                        'use dependency.get_variable(pkgconfig : ...) instead')
