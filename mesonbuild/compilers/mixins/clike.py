@@ -26,7 +26,7 @@ from ... import arglist
 from ... import mesonlib
 from ... import mlog
 from ...linkers.linkers import GnuLikeDynamicLinkerMixin, SolarisDynamicLinker, CompCertDynamicLinker
-from ...mesonlib import LibType, OptionKey
+from ...mesonlib import LibType
 from .. import compilers
 from ..compilers import CompileCheckMode
 from .visualstudio import VisualStudioLikeCompiler
@@ -278,7 +278,7 @@ class CLikeCompiler(Compiler):
         mode = CompileCheckMode.LINK
         if self.is_cross:
             binname += '_cross'
-            if environment.need_exe_wrapper(self.for_machine) and not environment.has_exe_wrapper():
+            if not environment.has_exe_wrapper():
                 # Linking cross built C/C++ apps is painful. You can't really
                 # tell if you should use -nostdlib or not and for example
                 # on OSX the compiler binary is the same but you need
@@ -308,7 +308,7 @@ class CLikeCompiler(Compiler):
         if pc.returncode != 0:
             raise mesonlib.EnvironmentException(f'Compiler {self.name_string()} cannot compile programs.')
         # Run sanity check
-        if environment.need_exe_wrapper(self.for_machine):
+        if self.is_cross:
             if not environment.has_exe_wrapper():
                 # Can't check if the binaries run so we have to assume they do
                 return
@@ -376,8 +376,8 @@ class CLikeCompiler(Compiler):
             # linking with static libraries since MSVC won't select a CRT for
             # us in that case and will error out asking us to pick one.
             try:
-                crt_val = env.coredata.options[OptionKey('b_vscrt')].value
-                buildtype = env.coredata.options[OptionKey('buildtype')].value
+                crt_val = env.coredata.optstore.get_value('b_vscrt')
+                buildtype = env.coredata.optstore.get_value('buildtype')
                 cargs += self.get_crt_compile_args(crt_val, buildtype)
             except (KeyError, AttributeError):
                 pass
@@ -625,9 +625,17 @@ class CLikeCompiler(Compiler):
             raise mesonlib.EnvironmentException('Could not compile alignment test.')
         if res.returncode != 0:
             raise mesonlib.EnvironmentException('Could not run alignment test binary.')
-        align = int(res.stdout)
+
+        align: int
+        try:
+            align = int(res.stdout)
+        except ValueError:
+            # If we get here, the user is most likely using a script that is
+            # pretending to be a compiler.
+            raise mesonlib.EnvironmentException('Could not run alignment test binary.')
         if align == 0:
             raise mesonlib.EnvironmentException(f'Could not determine alignment of {typename}. Sorry. You might want to file a bug.')
+
         return align, res.cached
 
     def get_define(self, dname: str, prefix: str, env: 'Environment',
@@ -1260,8 +1268,10 @@ class CLikeCompiler(Compiler):
         for arg in args:
             # some compilers, e.g. GCC, don't warn for unsupported warning-disable
             # flags, so when we are testing a flag like "-Wno-forgotten-towel", also
-            # check the equivalent enable flag too "-Wforgotten-towel"
-            if arg.startswith('-Wno-'):
+            # check the equivalent enable flag too "-Wforgotten-towel".
+            # Make an exception for -Wno-attributes=x as -Wattributes=x is invalid
+            # for GCC at least.
+            if arg.startswith('-Wno-') and not arg.startswith('-Wno-attributes='):
                 new_args.append('-W' + arg[5:])
             if arg.startswith('-Wl,'):
                 mlog.warning(f'{arg} looks like a linker argument, '

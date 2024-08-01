@@ -43,7 +43,6 @@ from ..mparser import (
     NotNode,
     PlusAssignmentNode,
     TernaryNode,
-    TestCaseClauseNode,
 )
 
 if T.TYPE_CHECKING:
@@ -57,6 +56,7 @@ if T.TYPE_CHECKING:
         IfClauseNode,
         IndexNode,
         OrNode,
+        TestCaseClauseNode,
         UMinusNode,
     )
 
@@ -189,9 +189,7 @@ class AstInterpreter(InterpreterBase):
         if not os.path.isfile(absname):
             sys.stderr.write(f'Unable to find build file {buildfilename} --> Skipping\n')
             return
-        with open(absname, encoding='utf-8') as f:
-            code = f.read()
-        assert isinstance(code, str)
+        code = self.read_buildfile(absname, buildfilename)
         try:
             codeblock = mparser.Parser(code, absname).parse()
         except mesonlib.MesonException as me:

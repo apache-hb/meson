@@ -23,9 +23,11 @@ from .mesonlib import (
     File, MesonException, MachineChoice, PerMachine, OrderedSet, listify,
     extract_as_list, typeslistify, stringlistify, classify_unity_sources,
     get_filenames_templates_dict, substitute_values, has_path_sep,
-    OptionKey, PerMachineDefaultable,
+    PerMachineDefaultable,
     MesonBugException, EnvironmentVariables, pickle_load,
 )
+from .options import OptionKey
+
 from .compilers import (
     is_header, is_object, is_source, clink_langs, sort_clink, all_languages,
     is_known_suffix, detect_static_linker
@@ -46,7 +48,6 @@ if T.TYPE_CHECKING:
     from .mesonlib import ExecutableSerialisation, FileMode, FileOrString
     from .modules import ModuleState
     from .mparser import BaseNode
-    from .wrap import WrapMode
 
     GeneratedTypes = T.Union['CustomTarget', 'CustomTargetIndex', 'GeneratedList']
     LibTypes = T.Union['SharedLibrary', 'StaticLibrary', 'CustomTarget', 'CustomTargetIndex']
@@ -237,7 +238,7 @@ class Build:
     def __init__(self, environment: environment.Environment):
         self.version = coredata.version
         self.project_name = 'name of master project'
-        self.project_version = None
+        self.project_version: T.Optional[str] = None
         self.environment = environment
         self.projects = {}
         self.targets: 'T.OrderedDict[str, T.Union[CustomTarget, BuildTarget]]' = OrderedDict()
@@ -534,7 +535,7 @@ class Target(HoldableObject, metaclass=abc.ABCMeta):
                    for k, v in overrides.items()}
         else:
             ovr = {}
-        self.options = coredata.OptionsView(self.environment.coredata.options, self.subproject, ovr)
+        self.options = coredata.OptionsView(self.environment.coredata.optstore, self.subproject, ovr)
         # XXX: this should happen in the interpreter
         if has_path_sep(self.name):
             # Fix failing test 53 when this becomes an error.
@@ -651,10 +652,20 @@ class Target(HoldableObject, metaclass=abc.ABCMeta):
 
         self.set_option_overrides(self.parse_overrides(kwargs))
 
+    def is_compiler_option_hack(self, key):
+        # FIXME this method must be deleted when OptionsView goes away.
+        # At that point the build target only stores the original string.
+        # The decision on how to use those pieces of data is done elsewhere.
+        from .compilers import all_languages
+        if '_' not in key.name:
+            return False
+        prefix = key.name.split('_')[0]
+        return prefix in all_languages
+
     def set_option_overrides(self, option_overrides: T.Dict[OptionKey, str]) -> None:
         self.options.overrides = {}
         for k, v in option_overrides.items():
-            if k.lang:
+            if self.is_compiler_option_hack(k):
                 self.options.overrides[k.evolve(machine=self.for_machine)] = v
             else:
                 self.options.overrides[k] = v
@@ -662,12 +673,10 @@ class Target(HoldableObject, metaclass=abc.ABCMeta):
     def get_options(self) -> coredata.OptionsView:
         return self.options
 
-    def get_option(self, key: 'OptionKey') -> T.Union[str, int, bool, 'WrapMode']:
-        # We don't actually have wrapmode here to do an assert, so just do a
-        # cast, we know what's in coredata anyway.
+    def get_option(self, key: 'OptionKey') -> T.Union[str, int, bool]:
         # TODO: if it's possible to annotate get_option or validate_option_value
         # in the future we might be able to remove the cast here
-        return T.cast('T.Union[str, int, bool, WrapMode]', self.options[key].value)
+        return T.cast('T.Union[str, int, bool]', self.options.get_value(key))
 
     @staticmethod
     def parse_overrides(kwargs: T.Dict[str, T.Any]) -> T.Dict[OptionKey, str]:
@@ -1003,7 +1012,7 @@ class BuildTarget(Target):
         if 'vala' in self.compilers and 'c' not in self.compilers:
             self.compilers['c'] = self.all_compilers['c']
         if 'cython' in self.compilers:
-            key = OptionKey('language', machine=self.for_machine, lang='cython')
+            key = OptionKey('cython_language', machine=self.for_machine)
             value = self.get_option(key)
 
             try:
@@ -1245,8 +1254,8 @@ class BuildTarget(Target):
         k = OptionKey(option)
         if kwargs.get(arg) is not None:
             val = T.cast('bool', kwargs[arg])
-        elif k in self.environment.coredata.options:
-            val = self.environment.coredata.options[k].value
+        elif k in self.environment.coredata.optstore:
+            val = self.environment.coredata.optstore.get_value(k)
         else:
             val = False
 
@@ -1283,10 +1292,10 @@ class BuildTarget(Target):
             if t not in result:
                 result.add(t)
                 if isinstance(t, StaticLibrary):
-                    t.get_dependencies_recurse(result)
+                    t.get_dependencies_recurse(result, include_proc_macros = self.uses_rust())
         return result
 
-    def get_dependencies_recurse(self, result: OrderedSet[BuildTargetTypes], include_internals: bool = True) -> None:
+    def get_dependencies_recurse(self, result: OrderedSet[BuildTargetTypes], include_internals: bool = True, include_proc_macros: bool = False) -> None:
         # self is always a static library because we don't need to pull dependencies
         # of shared libraries. If self is installed (not internal) it already
         # include objects extracted from all its internal dependencies so we can
@@ -1295,12 +1304,14 @@ class BuildTarget(Target):
         for t in self.link_targets:
             if t in result:
                 continue
+            if not include_proc_macros and t.rust_crate_type == 'proc-macro':
+                continue
             if include_internals or not t.is_internal():
                 result.add(t)
             if isinstance(t, StaticLibrary):
-                t.get_dependencies_recurse(result, include_internals)
+                t.get_dependencies_recurse(result, include_internals, include_proc_macros)
         for t in self.link_whole_targets:
-            t.get_dependencies_recurse(result, include_internals)
+            t.get_dependencies_recurse(result, include_internals, include_proc_macros)
 
     def get_source_subdir(self):
         return self.subdir
@@ -1818,13 +1829,9 @@ class Generator(HoldableObject):
             env=env if env is not None else EnvironmentVariables())
 
         for e in files:
-            if isinstance(e, CustomTarget):
-                output.depends.add(e)
-            if isinstance(e, CustomTargetIndex):
-                output.depends.add(e.target)
             if isinstance(e, (CustomTarget, CustomTargetIndex)):
                 output.depends.add(e)
-                fs = [File.from_built_file(state.subdir, f) for f in e.get_outputs()]
+                fs = [File.from_built_file(e.get_subdir(), f) for f in e.get_outputs()]
             elif isinstance(e, GeneratedList):
                 if preserve_path_from:
                     raise InvalidArguments("generator.process: 'preserve_path_from' is not allowed if one input is a 'generated_list'.")
@@ -1935,8 +1942,8 @@ class Executable(BuildTarget):
             compilers: T.Dict[str, 'Compiler'],
             kwargs):
         key = OptionKey('b_pie')
-        if 'pie' not in kwargs and key in environment.coredata.options:
-            kwargs['pie'] = environment.coredata.options[key].value
+        if 'pie' not in kwargs and key in environment.coredata.optstore:
+            kwargs['pie'] = environment.coredata.optstore.get_value(key)
         super().__init__(name, subdir, subproject, for_machine, sources, structured_sources, objects,
                          environment, compilers, kwargs)
         self.win_subsystem = kwargs.get('win_subsystem') or 'console'

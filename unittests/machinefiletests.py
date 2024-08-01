@@ -12,7 +12,7 @@ import functools
 import threading
 import sys
 from itertools import chain
-from unittest import mock, skipIf, SkipTest
+from unittest import mock, skipIf, SkipTest, TestCase
 from pathlib import Path
 import typing as T
 
@@ -23,6 +23,9 @@ import mesonbuild.envconfig
 import mesonbuild.environment
 import mesonbuild.coredata
 import mesonbuild.modules.gnome
+
+from mesonbuild import machinefile
+
 from mesonbuild.mesonlib import (
     MachineChoice, is_windows, is_osx, is_cygwin, is_haiku, is_sunos
 )
@@ -47,8 +50,16 @@ def is_real_gnu_compiler(path):
     '''
     if not path:
         return False
-    out = subprocess.check_output([path, '--version'], universal_newlines=True, stderr=subprocess.STDOUT)
+    out = subprocess.check_output([path, '--version'], encoding='utf-8', universal_newlines=True, stderr=subprocess.STDOUT)
     return 'Free Software Foundation' in out
+
+cross_dir = Path(__file__).parent.parent / 'cross'
+
+class MachineFileStoreTests(TestCase):
+
+    def test_loading(self):
+        store = machinefile.MachineFileStore([cross_dir / 'ubuntu-armhf.txt'], [], str(cross_dir))
+        self.assertIsNotNone(store)
 
 class NativeFileTests(BasePlatformTests):
 

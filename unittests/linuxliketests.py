@@ -25,8 +25,9 @@ import mesonbuild.modules.gnome
 from mesonbuild.mesonlib import (
     MachineChoice, is_windows, is_osx, is_cygwin, is_openbsd, is_haiku,
     is_sunos, windows_proof_rmtree, version_compare, is_linux,
-    OptionKey, EnvironmentException
+    EnvironmentException
 )
+from mesonbuild.options import OptionKey
 from mesonbuild.compilers import (
     detect_c_compiler, detect_cpp_compiler, compiler_from_language,
 )
@@ -485,7 +486,7 @@ class LinuxlikeTests(BasePlatformTests):
         # Check that all the listed -std=xxx options for this compiler work just fine when used
         # https://en.wikipedia.org/wiki/Xcode#Latest_versions
         # https://www.gnu.org/software/gcc/projects/cxx-status.html
-        key = OptionKey('std', lang=compiler.language)
+        key = OptionKey(f'{compiler.language}_std')
         for v in compiler.get_options()[key].choices:
             # we do it like this to handle gnu++17,c++17 and gnu17,c17 cleanly
             # thus, C++ first
@@ -1124,7 +1125,7 @@ class LinuxlikeTests(BasePlatformTests):
         # option, adding the meson-uninstalled directory to it.
         PkgConfigInterface.setup_env({}, env, MachineChoice.HOST, uninstalled=True)
 
-        pkg_config_path = env.coredata.options[OptionKey('pkg_config_path')].value
+        pkg_config_path = env.coredata.optstore.get_value('pkg_config_path')
         self.assertEqual(pkg_config_path, [pkg_dir])
 
     @skipIfNoPkgconfig
@@ -1702,7 +1703,7 @@ class LinuxlikeTests(BasePlatformTests):
         p = subprocess.run([ar, 't', outlib],
                            stdout=subprocess.PIPE,
                            stderr=subprocess.DEVNULL,
-                           text=True, timeout=1)
+                           encoding='utf-8', text=True, timeout=1)
         obj_files = p.stdout.strip().split('\n')
         self.assertEqual(len(obj_files), 1)
         self.assertTrue(obj_files[0].endswith('-prelink.o'))

@@ -31,6 +31,7 @@ from ..interpreterbase.decorators import typed_pos_args
 from ..mesonlib import (
     MachineChoice, MesonException, OrderedSet, Popen_safe, join_args, quote_arg
 )
+from ..options import OptionKey
 from ..programs import OverrideProgram
 from ..scripts.gettext import read_linguas
 
@@ -440,6 +441,8 @@ class GnomeModule(ExtensionModule):
 
             depend_files, depends, subdirs = self._get_gresource_dependencies(
                 state, ifile, source_dirs, dependencies)
+        else:
+            depend_files = []
 
         # Make source dirs relative to build dir now
         source_dirs = [os.path.join(state.build_to_src, state.subdir, d) for d in source_dirs]
@@ -476,8 +479,11 @@ class GnomeModule(ExtensionModule):
             else:
                 raise MesonException('Compiling GResources into code is only supported in C and C++ projects')
 
-        if kwargs['install'] and not gresource:
-            raise MesonException('The install kwarg only applies to gresource bundles, see install_header')
+        if kwargs['install']:
+            if not gresource:
+                raise MesonException('The install kwarg only applies to gresource bundles, see install_header')
+            elif not kwargs['install_dir']:
+                raise MesonException('gnome.compile_resources: "install_dir" keyword argument must be set when "install" is true.')
 
         install_header = kwargs['install_header']
         if install_header and gresource:
@@ -492,7 +498,6 @@ class GnomeModule(ExtensionModule):
             target_cmd = cmd
         else:
             depfile = f'{output}.d'
-            depend_files = []
             target_cmd = copy.copy(cmd) + ['--dependency-file', '@DEPFILE@']
         target_c = GResourceTarget(
             name,
@@ -515,7 +520,7 @@ class GnomeModule(ExtensionModule):
         if gresource: # Only one target for .gresource files
             return ModuleReturnValue(target_c, [target_c])
 
-        install_dir = kwargs['install_dir'] or state.environment.coredata.get_option(mesonlib.OptionKey('includedir'))
+        install_dir = kwargs['install_dir'] or state.environment.coredata.get_option(OptionKey('includedir'))
         assert isinstance(install_dir, str), 'for mypy'
         target_h = GResourceHeaderTarget(
             f'{target_name}_h',
@@ -904,8 +909,8 @@ class GnomeModule(ExtensionModule):
                 cflags += state.global_args[lang]
             if state.project_args.get(lang):
                 cflags += state.project_args[lang]
-            if mesonlib.OptionKey('b_sanitize') in compiler.base_options:
-                sanitize = state.environment.coredata.options[mesonlib.OptionKey('b_sanitize')].value
+            if OptionKey('b_sanitize') in compiler.base_options:
+                sanitize = state.environment.coredata.optstore.get_value('b_sanitize')
                 cflags += compiler.sanitizer_compile_args(sanitize)
                 sanitize = sanitize.split(',')
                 # These must be first in ldflags
@@ -1641,7 +1646,7 @@ class GnomeModule(ExtensionModule):
 
         targets = []
         install_header = kwargs['install_header']
-        install_dir = kwargs['install_dir'] or state.environment.coredata.get_option(mesonlib.OptionKey('includedir'))
+        install_dir = kwargs['install_dir'] or state.environment.coredata.get_option(OptionKey('includedir'))
         assert isinstance(install_dir, str), 'for mypy'
 
         output = namebase + '.c'
@@ -1953,7 +1958,7 @@ class GnomeModule(ExtensionModule):
             ) -> build.CustomTarget:
         real_cmd: T.List[T.Union[str, 'ToolType']] = [self._find_tool(state, 'glib-mkenums')]
         real_cmd.extend(cmd)
-        _install_dir = install_dir or state.environment.coredata.get_option(mesonlib.OptionKey('includedir'))
+        _install_dir = install_dir or state.environment.coredata.get_option(OptionKey('includedir'))
         assert isinstance(_install_dir, str), 'for mypy'
 
         return CustomTarget(
@@ -1996,7 +2001,7 @@ class GnomeModule(ExtensionModule):
 
         new_genmarshal = mesonlib.version_compare(self._get_native_glib_version(state), '>= 2.53.3')
 
-        cmd: T.List[T.Union['ToolType', str]] = [self._find_tool(state, 'glib-genmarshal')]
+        cmd: T.List[T.Union['ToolType', str]] = [self._find_tool(state, 'glib-genmarshal'), '--quiet']
         if kwargs['prefix']:
             cmd.extend(['--prefix', kwargs['prefix']])
         if kwargs['extra_args']:
@@ -2165,7 +2170,7 @@ class GnomeModule(ExtensionModule):
                 cmd.append(gir_file)
 
         vapi_output = library + '.vapi'
-        datadir = state.environment.coredata.get_option(mesonlib.OptionKey('datadir'))
+        datadir = state.environment.coredata.get_option(OptionKey('datadir'))
         assert isinstance(datadir, str), 'for mypy'
         install_dir = kwargs['install_dir'] or os.path.join(datadir, 'vala', 'vapi')
 

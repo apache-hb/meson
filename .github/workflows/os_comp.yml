@@ -26,6 +26,12 @@ on:
       - ".github/workflows/os_comp.yml"
       - "run*tests.py"
 
+# make GHA actions use node16 which still works with bionic
+# See https://github.blog/changelog/2024-03-07-github-actions-all-actions-will-run-on-node20-instead-of-node16-by-default/
+# Unclear how long this will work though
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+
 permissions:
   contents: read
 
@@ -48,6 +54,7 @@ jobs:
       MESON_CI_JOBNAME: linux-${{ matrix.cfg.id }}-gcc
 
     steps:
+      # Need v3 because of bionic
     - uses: actions/checkout@v3
     - name: Run tests
       # All environment variables are stored inside the docker image in /ci/env_vars.sh
@@ -74,7 +81,7 @@ jobs:
       MESON_CI_JOBNAME_UPDATE: linux-arch-gcc-pypy
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Run tests
       run: |
         source /ci/env_vars.sh
@@ -128,7 +135,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Run tests
         shell: bash

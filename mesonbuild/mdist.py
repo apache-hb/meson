@@ -23,7 +23,8 @@ from glob import glob
 from pathlib import Path
 from mesonbuild.environment import Environment, detect_ninja
 from mesonbuild.mesonlib import (MesonException, RealPathAction, get_meson_command, quiet_git,
-                                 windows_proof_rmtree, setup_vsenv, OptionKey)
+                                 windows_proof_rmtree, setup_vsenv)
+from .options import OptionKey
 from mesonbuild.msetup import add_arguments as msetup_argparse
 from mesonbuild.wrap import wrap
 from mesonbuild import mlog, build, coredata
@@ -33,9 +34,10 @@ if T.TYPE_CHECKING:
     from ._typing import ImmutableListProtocol
     from .mesonlib import ExecutableSerialisation
 
-archive_choices = ['gztar', 'xztar', 'zip']
+archive_choices = ['bztar', 'gztar', 'xztar', 'zip']
 
-archive_extension = {'gztar': '.tar.gz',
+archive_extension = {'bztar': '.tar.bz2',
+                     'gztar': '.tar.gz',
                      'xztar': '.tar.xz',
                      'zip': '.zip'}
 
@@ -47,7 +49,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument('--allow-dirty', action='store_true',
                         help='Allow even when repository contains uncommitted changes.')
     parser.add_argument('--formats', default='xztar',
-                        help='Comma separated list of archive types to create. Supports xztar (default), gztar, and zip.')
+                        help='Comma separated list of archive types to create. Supports xztar (default), bztar, gztar, and zip.')
     parser.add_argument('--include-subprojects', action='store_true',
                         help='Include source code of subprojects that have been used for the build.')
     parser.add_argument('--no-tests', action='store_true',
@@ -139,6 +141,9 @@ class GitDist(Dist):
 
     def have_dirty_index(self) -> bool:
         '''Check whether there are uncommitted changes in git'''
+        # Optimistically call update-index, and disregard its return value. It could be read-only,
+        # and only the output of diff-index matters.
+        subprocess.call(['git', '-C', self.src_root, 'update-index', '-q', '--refresh'])
         ret = subprocess.call(['git', '-C', self.src_root, 'diff-index', '--quiet', 'HEAD'])
         return ret == 1
 
@@ -218,7 +223,9 @@ class GitDist(Dist):
 class HgDist(Dist):
     def have_dirty_index(self) -> bool:
         '''Check whether there are uncommitted changes in hg'''
-        out = subprocess.check_output(['hg', '-R', self.src_root, 'summary'])
+        env = os.environ.copy()
+        env['LC_ALL'] = 'C'
+        out = subprocess.check_output(['hg', '-R', self.src_root, 'summary'], env=env)
         return b'commit: (clean)' not in out
 
     def create_dist(self, archives: T.List[str]) -> T.List[str]:
@@ -230,6 +237,7 @@ class HgDist(Dist):
         os.makedirs(self.dist_sub, exist_ok=True)
         tarname = os.path.join(self.dist_sub, self.dist_name + '.tar')
         xzname = tarname + '.xz'
+        bz2name = tarname + '.bz2'
         gzname = tarname + '.gz'
         zipname = os.path.join(self.dist_sub, self.dist_name + '.zip')
         # Note that -X interprets relative paths using the current working
@@ -248,6 +256,11 @@ class HgDist(Dist):
             with lzma.open(xzname, 'wb') as xf, open(tarname, 'rb') as tf:
                 shutil.copyfileobj(tf, xf)
             output_names.append(xzname)
+        if 'bztar' in archives:
+            import bz2
+            with bz2.open(bz2name, 'wb') as bf, open(tarname, 'rb') as tf:
+                shutil.copyfileobj(tf, bf)
+            output_names.append(bz2name)
         if 'gztar' in archives:
             with gzip.open(gzname, 'wb') as zf, open(tarname, 'rb') as tf:
                 shutil.copyfileobj(tf, zf)

@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import typing as T
 
-from .. import coredata
-from ..mesonlib import OptionKey
+from .. import options
+from ..options import OptionKey
 
 from .compilers import Compiler
 from .mixins.clike import CLikeCompiler
@@ -14,6 +14,7 @@ from .mixins.gnu import GnuCompiler, gnu_common_warning_args, gnu_objc_warning_a
 from .mixins.clang import ClangCompiler
 
 if T.TYPE_CHECKING:
+    from .. import coredata
     from ..envconfig import MachineInfo
     from ..environment import Environment
     from ..linkers.linkers import DynamicLinker
@@ -80,8 +81,8 @@ class ClangObjCCompiler(ClangCompiler, ObjCCompiler):
     def get_options(self) -> 'coredata.MutableKeyedOptionDictType':
         return self.update_options(
             super().get_options(),
-            self.create_option(coredata.UserComboOption,
-                               OptionKey('std', machine=self.for_machine, lang='c'),
+            self.create_option(options.UserComboOption,
+                               OptionKey('c_std', machine=self.for_machine),
                                'C language standard to use',
                                ['none', 'c89', 'c99', 'c11', 'c17', 'gnu89', 'gnu99', 'gnu11', 'gnu17'],
                                'none'),
@@ -89,9 +90,9 @@ class ClangObjCCompiler(ClangCompiler, ObjCCompiler):
 
     def get_option_compile_args(self, options: 'coredata.KeyedOptionDictType') -> T.List[str]:
         args = []
-        std = options[OptionKey('std', machine=self.for_machine, lang='c')]
-        if std.value != 'none':
-            args.append('-std=' + std.value)
+        std = options.get_value(OptionKey('c_std', machine=self.for_machine))
+        if std != 'none':
+            args.append('-std=' + std)
         return args
 
 class AppleClangObjCCompiler(ClangObjCCompiler):

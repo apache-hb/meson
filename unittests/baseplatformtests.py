@@ -31,7 +31,7 @@ import mesonbuild.modules.pkgconfig
 
 
 from run_tests import (
-    Backend, ensure_backend_detects_changes, get_backend_commands,
+    Backend, get_backend_commands,
     get_builddir_target_args, get_meson_script, run_configure_inprocess,
     run_mtest_inprocess, handle_meson_skip_test,
 )
@@ -78,6 +78,7 @@ class BasePlatformTests(TestCase):
         self.linuxlike_test_dir = os.path.join(src_root, 'test cases/linuxlike')
         self.objc_test_dir = os.path.join(src_root, 'test cases/objc')
         self.objcpp_test_dir = os.path.join(src_root, 'test cases/objcpp')
+        self.darwin_test_dir = os.path.join(src_root, 'test cases/darwin')
 
         # Misc stuff
         self.orig_env = os.environ.copy()
@@ -294,8 +295,6 @@ class BasePlatformTests(TestCase):
             arg = [arg]
         else:
             arg = list(arg)
-        if will_build:
-            ensure_backend_detects_changes(self.backend)
         self._run(self.mconf_command + arg + [self.builddir])
 
     def getconf(self, optname: str):
@@ -309,7 +308,6 @@ class BasePlatformTests(TestCase):
         windows_proof_rmtree(self.builddir)
 
     def utime(self, f):
-        ensure_backend_detects_changes(self.backend)
         os.utime(f)
 
     def get_compdb(self):
@@ -366,14 +364,14 @@ class BasePlatformTests(TestCase):
         if isinstance(args, str):
             args = [args]
         out = subprocess.check_output(self.mintro_command + args + [self.builddir],
-                                      universal_newlines=True)
+                                      encoding='utf-8', universal_newlines=True)
         return json.loads(out)
 
     def introspect_directory(self, directory, args):
         if isinstance(args, str):
             args = [args]
         out = subprocess.check_output(self.mintro_command + args + [directory],
-                                      universal_newlines=True)
+                                      encoding='utf-8', universal_newlines=True)
         try:
             obj = json.loads(out)
         except Exception as e:

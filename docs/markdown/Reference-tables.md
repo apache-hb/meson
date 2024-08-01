@@ -15,7 +15,7 @@ These are return values of the `get_id` (Compiler family) and
 | clang-cl  | The Clang compiler (MSVC compatible driver) | msvc |
 | dmd       | D lang reference compiler        |                 |
 | emscripten| Emscripten WASM compiler         |                 |
-| flang     | Flang Fortran compiler           |                 |
+| flang     | Classic Flang Fortran compiler   |                 |
 | g95       | The G95 Fortran compiler         |                 |
 | gcc       | The GNU Compiler Collection      | gcc             |
 | intel     | Intel compiler (Linux and Mac)   | gcc             |
@@ -24,6 +24,7 @@ These are return values of the `get_id` (Compiler family) and
 | intel-llvm-cl | Intel oneAPI LLVM-based compiler (Windows)  | msvc            |
 | lcc       | Elbrus C/C++/Fortran Compiler    |                 |
 | llvm      | LLVM-based compiler (Swift, D)   |                 |
+| llvm-flang| Flang Fortran compiler (LLVM-based) |              |
 | mono      | Xamarin C# compiler              |                 |
 | mwccarm   | Metrowerks C/C++ compiler for Embedded ARM         |                 |
 | mwcceppc  | Metrowerks C/C++ compiler for Embedded PowerPC     |                 |
@@ -272,54 +273,55 @@ These values are supported using the GCC style `__attribute__` annotations,
 which are supported by GCC, Clang, and other compilers.
 
 
-| Name                     |
-|--------------------------|
-| alias                    |
-| aligned                  |
-| alloc_size               |
-| always_inline            |
-| artificial               |
-| cold                     |
-| const                    |
-| constructor              |
-| constructor_priority     |
-| deprecated               |
-| destructor               |
-| error                    |
-| externally_visible       |
-| fallthrough              |
-| flatten                  |
-| format                   |
-| format_arg               |
-| force_align_arg_pointer³ |
-| gnu_inline               |
-| hot                      |
-| ifunc                    |
-| malloc                   |
-| noclone                  |
-| noinline                 |
-| nonnull                  |
-| noreturn                 |
-| nothrow                  |
-| optimize                 |
-| packed                   |
-| pure                     |
-| retain⁴                  |
-| returns_nonnull          |
-| section⁵                 |
-| sentinel⁵                |
-| unused                   |
-| used                     |
-| vector_size⁶             |
-| visibility*              |
-| visibility:default†      |
-| visibility:hidden†       |
-| visibility:internal†     |
-| visibility:protected†    |
-| warning                  |
-| warn_unused_result       |
-| weak                     |
-| weakref                  |
+| Name                        |
+|-----------------------------|
+| alias                       |
+| aligned                     |
+| alloc_size                  |
+| always_inline               |
+| artificial                  |
+| cold                        |
+| const                       |
+| constructor                 |
+| constructor_priority        |
+| deprecated                  |
+| destructor                  |
+| error                       |
+| externally_visible          |
+| fallthrough                 |
+| flatten                     |
+| format                      |
+| format_arg                  |
+| force_align_arg_pointer³    |
+| gnu_inline                  |
+| hot                         |
+| ifunc                       |
+| malloc                      |
+| noclone                     |
+| noinline                    |
+| nonnull                     |
+| noreturn                    |
+| nothrow                     |
+| null_terminated_string_arg⁷ |
+| optimize                    |
+| packed                      |
+| pure                        |
+| retain⁴                     |
+| returns_nonnull             |
+| section⁵                    |
+| sentinel⁵                   |
+| unused                      |
+| used                        |
+| vector_size⁶                |
+| visibility*                 |
+| visibility:default†         |
+| visibility:hidden†          |
+| visibility:internal†        |
+| visibility:protected†       |
+| warning                     |
+| warn_unused_result          |
+| weak                        |
+| weakref                     |
 
 \* *Changed in 0.52.0* the "visibility" target no longer includes
 "protected", which is not present in Apple's clang.
@@ -334,6 +336,8 @@ which are supported by GCC, Clang, and other compilers.
 ⁵ *New in 0.63.0*
 
 ⁶ *New in 1.1.0*
+
+⁷ *New in 1.5.0*
 
 ### MSVC __declspec
 

@@ -9,8 +9,9 @@ import textwrap
 import re
 import typing as T
 
-from .. import coredata
-from ..mesonlib import EnvironmentException, MesonException, Popen_safe_logged, OptionKey
+from .. import options
+from ..mesonlib import EnvironmentException, MesonException, Popen_safe_logged
+from ..options import OptionKey
 from .compilers import Compiler, clike_debug_args
 
 if T.TYPE_CHECKING:
@@ -43,6 +44,7 @@ class RustCompiler(Compiler):
         '1': [],
         '2': [],
         '3': ['-W', 'warnings'],
+        'everything': ['-W', 'warnings'],
     }
 
     # Those are static libraries, but we use dylib= here as workaround to avoid
@@ -85,7 +87,7 @@ class RustCompiler(Compiler):
         if pc.returncode != 0:
             raise EnvironmentException(f'Rust compiler {self.name_string()} cannot compile programs.')
         self._native_static_libs(work_dir, source_name)
-        if environment.need_exe_wrapper(self.for_machine):
+        if self.is_cross:
             if not environment.has_exe_wrapper():
                 # Can't check if the binaries run so we have to assume they do
                 return
@@ -157,8 +159,8 @@ class RustCompiler(Compiler):
     # use_linker_args method instead.
 
     def get_options(self) -> MutableKeyedOptionDictType:
-        return dict((self.create_option(coredata.UserComboOption,
-                                        OptionKey('std', machine=self.for_machine, lang=self.language),
+        return dict((self.create_option(options.UserComboOption,
+                                        self.form_compileropt_key('std'),
                                         'Rust edition to use',
                                         ['none', '2015', '2018', '2021'],
                                         'none'),))
@@ -171,10 +173,10 @@ class RustCompiler(Compiler):
 
     def get_option_compile_args(self, options: 'KeyedOptionDictType') -> T.List[str]:
         args = []
-        key = OptionKey('std', machine=self.for_machine, lang=self.language)
-        std = options[key]
-        if std.value != 'none':
-            args.append('--edition=' + std.value)
+        key = self.form_compileropt_key('std')
+        std = options.get_value(key)
+        if std != 'none':
+            args.append('--edition=' + std)
         return args
 
     def get_crt_compile_args(self, crt_val: str, buildtype: str) -> T.List[str]:

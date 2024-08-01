@@ -10,10 +10,11 @@ import typing as T
 from typing_extensions import TypedDict, Literal, Protocol, NotRequired
 
 from .. import build
-from .. import coredata
+from .. import options
 from ..compilers import Compiler
 from ..dependencies.base import Dependency
-from ..mesonlib import EnvironmentVariables, MachineChoice, File, FileMode, FileOrString, OptionKey
+from ..mesonlib import EnvironmentVariables, MachineChoice, File, FileMode, FileOrString
+from ..options import OptionKey
 from ..modules.cmake import CMakeSubprojectOptions
 from ..programs import ExternalProgram
 from .type_checking import PkgConfigDefineType, SourcesVarargsType
@@ -73,7 +74,7 @@ class ExtractRequired(TypedDict):
     a boolean or a feature option should inherit it's arguments from this class.
     """
 
-    required: T.Union[bool, coredata.UserFeatureOption]
+    required: T.Union[bool, options.UserFeatureOption]
 
 
 class ExtractSearchDirs(TypedDict):
@@ -210,6 +211,7 @@ class Project(TypedDict):
     meson_version: T.Optional[str]
     default_options: T.Dict[OptionKey, T.Union[str, int, bool, T.List[str]]]
     license: T.List[str]
+    license_files: T.List[str]
     subproject_dir: str
 
 

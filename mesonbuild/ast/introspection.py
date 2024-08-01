@@ -10,12 +10,13 @@ import copy
 import os
 import typing as T
 
-from .. import compilers, environment, mesonlib, optinterpreter
+from .. import compilers, environment, mesonlib, optinterpreter, options
 from .. import coredata as cdata
 from ..build import Executable, Jar, SharedLibrary, SharedModule, StaticLibrary
 from ..compilers import detect_compiler_for
 from ..interpreterbase import InvalidArguments, SubProject
-from ..mesonlib import MachineChoice, OptionKey
+from ..mesonlib import MachineChoice
+from ..options import OptionKey
 from ..mparser import BaseNode, ArithmeticNode, ArrayNode, ElementaryNode, IdNode, FunctionNode, StringNode
 from .interpreter import AstInterpreter
 
@@ -105,7 +106,7 @@ class IntrospectionInterpreter(AstInterpreter):
         if not os.path.exists(optfile):
             optfile = os.path.join(self.source_root, self.subdir, 'meson_options.txt')
         if os.path.exists(optfile):
-            oi = optinterpreter.OptionInterpreter(self.subproject)
+            oi = optinterpreter.OptionInterpreter(self.coredata.optstore, self.subproject)
             oi.process(optfile)
             assert isinstance(proj_name, str), 'for mypy'
             self.coredata.update_project_options(oi.options, T.cast('SubProject', proj_name))
@@ -130,7 +131,7 @@ class IntrospectionInterpreter(AstInterpreter):
                         self.do_subproject(SubProject(i))
 
         self.coredata.init_backend_options(self.backend)
-        options = {k: v for k, v in self.environment.options.items() if k.is_backend()}
+        options = {k: v for k, v in self.environment.options.items() if self.environment.coredata.optstore.is_backend_option(k)}
 
         self.coredata.set_options(options)
         self._add_languages(proj_langs, True, MachineChoice.HOST)
@@ -145,13 +146,13 @@ class IntrospectionInterpreter(AstInterpreter):
             subi.project_data['name'] = dirname
             self.project_data['subprojects'] += [subi.project_data]
         except (mesonlib.MesonException, RuntimeError):
-            return
+            pass
 
     def func_add_languages(self, node: BaseNode, args: T.List[TYPE_var], kwargs: T.Dict[str, TYPE_var]) -> None:
         kwargs = self.flatten_kwargs(kwargs)
         required = kwargs.get('required', True)
-        assert isinstance(required, (bool, cdata.UserFeatureOption)), 'for mypy'
-        if isinstance(required, cdata.UserFeatureOption):
+        assert isinstance(required, (bool, options.UserFeatureOption)), 'for mypy'
+        if isinstance(required, options.UserFeatureOption):
             required = required.is_enabled()
         if 'native' in kwargs:
             native = kwargs.get('native', False)
@@ -182,7 +183,7 @@ class IntrospectionInterpreter(AstInterpreter):
                 if self.subproject:
                     options = {}
                     for k in comp.get_options():
-                        v = copy.copy(self.coredata.options[k])
+                        v = copy.copy(self.coredata.optstore.get_value_object(k))
                         k = k.evolve(subproject=self.subproject)
                         options[k] = v
                     self.coredata.add_compiler_options(options, lang, for_machine, self.environment, self.subproject)

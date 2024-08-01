@@ -18,7 +18,8 @@ from .toolchain import CMakeToolchain, CMakeExecScope
 from .traceparser import CMakeTraceParser
 from .tracetargets import resolve_cmake_trace_targets
 from .. import mlog, mesonlib
-from ..mesonlib import MachineChoice, OrderedSet, path_is_in_root, relative_to_if_possible, OptionKey
+from ..mesonlib import MachineChoice, OrderedSet, path_is_in_root, relative_to_if_possible
+from ..options import OptionKey
 from ..mesondata import DataFile
 from ..compilers.compilers import assembler_suffixes, lang_suffixes, header_suffixes, obj_suffixes, lib_suffixes, is_header
 from ..programs import ExternalProgram
@@ -54,7 +55,7 @@ if T.TYPE_CHECKING:
 
 # Disable all warnings automatically enabled with --trace and friends
 # See https://cmake.org/cmake/help/latest/variable/CMAKE_POLICY_WARNING_CMPNNNN.html
-disable_policy_warnings = [
+DISABLE_POLICY_WARNINGS: T.Collection[str] = [
     'CMP0025',
     'CMP0047',
     'CMP0056',
@@ -68,14 +69,14 @@ disable_policy_warnings = [
 ]
 
 # CMake is a bit more averse to debugging, but in spirit the build types match
-buildtype_map = {
+BUILDTYPE_MAP: T.Mapping[str, str] = {
     'debug': 'Debug',
     'debugoptimized': 'RelWithDebInfo',  # CMake sets NDEBUG
     'release': 'Release',
     'minsize': 'MinSizeRel',  # CMake leaves out debug information immediately
 }
 
-target_type_map = {
+TARGET_TYPE_MAP: T.Mapping[str, str] = {
     'STATIC_LIBRARY': 'static_library',
     'MODULE_LIBRARY': 'shared_module',
     'SHARED_LIBRARY': 'shared_library',
@@ -84,9 +85,9 @@ target_type_map = {
     'INTERFACE_LIBRARY': 'header_only'
 }
 
-skip_targets = ['UTILITY']
+SKIP_TARGETS: T.Collection[str] = ['UTILITY']
 
-blacklist_compiler_flags = [
+BLACKLIST_COMPILER_FLAGS: T.Collection[str] = [
     '-Wall', '-Wextra', '-Weverything', '-Werror', '-Wpedantic', '-pedantic', '-w',
     '/W1', '/W2', '/W3', '/W4', '/Wall', '/WX', '/w',
     '/O1', '/O2', '/Ob', '/Od', '/Og', '/Oi', '/Os', '/Ot', '/Ox', '/Oy', '/Ob0',
@@ -94,15 +95,17 @@ blacklist_compiler_flags = [
     '/Z7', '/Zi', '/ZI',
 ]
 
-blacklist_link_flags = [
+BLACKLIST_LINK_FLAGS: T.Collection[str] = [
     '/machine:x64', '/machine:x86', '/machine:arm', '/machine:ebc',
     '/debug', '/debug:fastlink', '/debug:full', '/debug:none',
     '/incremental',
 ]
 
-blacklist_clang_cl_link_flags = ['/GR', '/EHsc', '/MDd', '/Zi', '/RTC1']
+BLACKLIST_CLANG_CL_LINK_FLAGS: T.Collection[str] = [
+    '/GR', '/EHsc', '/MDd', '/Zi', '/RTC1',
+]
 
-blacklist_link_libs = [
+BLACKLIST_LINK_LIBS: T.Collection[str] = [
     'kernel32.lib',
     'user32.lib',
     'gdi32.lib',
@@ -115,7 +118,7 @@ blacklist_link_libs = [
     'advapi32.lib'
 ]
 
-transfer_dependencies_from = ['header_only']
+TRANSFER_DEPENDENCIES_FROM: T.Collection[str] = ['header_only']
 
 _cmake_name_regex = re.compile(r'[^_a-zA-Z0-9]')
 def _sanitize_cmake_name(name: str) -> str:
@@ -220,6 +223,7 @@ class ConverterTarget:
         self.install_dir: T.Optional[Path] = None
         self.link_libraries = target.link_libraries
         self.link_flags = target.link_flags + target.link_lang_flags
+        self.public_link_flags: T.List[str] = []
         self.depends_raw: T.List[str] = []
         self.depends: T.List[T.Union[ConverterTarget, ConverterCustomTarget]] = []
 
@@ -325,7 +329,7 @@ class ConverterTarget:
                     # corresponding custom target is run.2
                     self.generated_raw += [Path(j)]
                     temp += [j]
-                elif j in blacklist_compiler_flags:
+                elif j in BLACKLIST_COMPILER_FLAGS:
                     pass
                 else:
                     temp += [j]
@@ -344,6 +348,7 @@ class ConverterTarget:
             rtgt = resolve_cmake_trace_targets(self.cmake_name, trace, self.env)
             self.includes += [Path(x) for x in rtgt.include_directories]
             self.link_flags += rtgt.link_flags
+            self.public_link_flags += rtgt.public_link_flags
             self.public_compile_opts += rtgt.public_compile_opts
             self.link_libraries += rtgt.libraries
 
@@ -445,13 +450,13 @@ class ConverterTarget:
 
         # Remove blacklisted options and libs
         def check_flag(flag: str) -> bool:
-            if flag.lower() in blacklist_link_flags or flag in blacklist_compiler_flags + blacklist_clang_cl_link_flags:
+            if flag.lower() in BLACKLIST_LINK_FLAGS or flag in BLACKLIST_COMPILER_FLAGS or flag in BLACKLIST_CLANG_CL_LINK_FLAGS:
                 return False
             if flag.startswith('/D'):
                 return False
             return True
 
-        self.link_libraries = [x for x in self.link_libraries if x.lower() not in blacklist_link_libs]
+        self.link_libraries = [x for x in self.link_libraries if x.lower() not in BLACKLIST_LINK_LIBS]
         self.link_flags = [x for x in self.link_flags if check_flag(x)]
 
         # Handle OSX frameworks
@@ -530,7 +535,7 @@ class ConverterTarget:
     @lru_cache(maxsize=None)
     def _all_lang_stds(self, lang: str) -> 'ImmutableListProtocol[str]':
         try:
-            res = self.env.coredata.options[OptionKey('std', machine=MachineChoice.BUILD, lang=lang)].choices
+            res = self.env.coredata.optstore.get_value_object(OptionKey(f'{lang}_std', machine=MachineChoice.BUILD)).choices
         except KeyError:
             return []
 
@@ -542,13 +547,13 @@ class ConverterTarget:
         return res
 
     def process_inter_target_dependencies(self) -> None:
-        # Move the dependencies from all transfer_dependencies_from to the target
+        # Move the dependencies from all TRANSFER_DEPENDENCIES_FROM to the target
         to_process = list(self.depends)
         processed = []
         new_deps = []
         for i in to_process:
             processed += [i]
-            if isinstance(i, ConverterTarget) and i.meson_func() in transfer_dependencies_from:
+            if isinstance(i, ConverterTarget) and i.meson_func() in TRANSFER_DEPENDENCIES_FROM:
                 to_process += [x for x in i.depends if x not in processed]
             else:
                 new_deps += [i]
@@ -556,11 +561,11 @@ class ConverterTarget:
 
     def cleanup_dependencies(self) -> None:
         # Clear the dependencies from targets that where moved from
-        if self.meson_func() in transfer_dependencies_from:
+        if self.meson_func() in TRANSFER_DEPENDENCIES_FROM:
             self.depends = []
 
     def meson_func(self) -> str:
-        return target_type_map.get(self.type.upper())
+        return TARGET_TYPE_MAP.get(self.type.upper())
 
     def log(self) -> None:
         mlog.log('Target', mlog.bold(self.name), f'({self.cmake_name})')
@@ -737,13 +742,13 @@ class ConverterCustomTarget:
                 self.inputs += [ctgt_ref]
 
     def process_inter_target_dependencies(self) -> None:
-        # Move the dependencies from all transfer_dependencies_from to the target
+        # Move the dependencies from all TRANSFER_DEPENDENCIES_FROM to the target
         to_process = list(self.depends)
         processed = []
         new_deps = []
         for i in to_process:
             processed += [i]
-            if isinstance(i, ConverterTarget) and i.meson_func() in transfer_dependencies_from:
+            if isinstance(i, ConverterTarget) and i.meson_func() in TRANSFER_DEPENDENCIES_FROM:
                 to_process += [x for x in i.depends if x not in processed]
             else:
                 new_deps += [i]
@@ -830,10 +835,10 @@ class CMakeInterpreter:
         if not any(arg.startswith('-DCMAKE_BUILD_TYPE=') for arg in cmake_args):
             # Our build type is favored over any CMAKE_BUILD_TYPE environment variable
             buildtype = T.cast('str', self.env.coredata.get_option(OptionKey('buildtype')))
-            if buildtype in buildtype_map:
-                cmake_args += [f'-DCMAKE_BUILD_TYPE={buildtype_map[buildtype]}']
+            if buildtype in BUILDTYPE_MAP:
+                cmake_args += [f'-DCMAKE_BUILD_TYPE={BUILDTYPE_MAP[buildtype]}']
         trace_args = self.trace.trace_args()
-        cmcmp_args = [f'-DCMAKE_POLICY_WARNING_{x}=OFF' for x in disable_policy_warnings]
+        cmcmp_args = [f'-DCMAKE_POLICY_WARNING_{x}=OFF' for x in DISABLE_POLICY_WARNINGS]
 
         self.fileapi.setup_request()
 
@@ -847,7 +852,7 @@ class CMakeInterpreter:
             mlog.log(mlog.bold('  - toolchain file:          '), toolchain_file.as_posix())
             mlog.log(mlog.bold('  - preload file:            '), preload_file.as_posix())
             mlog.log(mlog.bold('  - trace args:              '), ' '.join(trace_args))
-            mlog.log(mlog.bold('  - disabled policy warnings:'), '[{}]'.format(', '.join(disable_policy_warnings)))
+            mlog.log(mlog.bold('  - disabled policy warnings:'), '[{}]'.format(', '.join(DISABLE_POLICY_WARNINGS)))
             mlog.log()
             self.build_dir.mkdir(parents=True, exist_ok=True)
             os_env = environ.copy()
@@ -910,7 +915,7 @@ class CMakeInterpreter:
                 for k_0 in j_0.targets:
                     # Avoid duplicate targets from different configurations and known
                     # dummy CMake internal target types
-                    if k_0.type not in skip_targets and k_0.name not in added_target_names:
+                    if k_0.type not in SKIP_TARGETS and k_0.name not in added_target_names:
                         added_target_names += [k_0.name]
                         self.targets += [ConverterTarget(k_0, self.env, self.for_machine)]
 
@@ -1164,11 +1169,17 @@ class CMakeInterpreter:
 
             # declare_dependency kwargs
             dep_kwargs: TYPE_mixed_kwargs = {
-                'link_args': tgt.link_flags + tgt.link_libraries,
                 'link_with': id_node(tgt_var),
                 'compile_args': tgt.public_compile_opts,
                 'include_directories': id_node(inc_var),
             }
+
+            # Static libraries need all link options and transient dependencies, but other
+            # libraries should only use the link flags from INTERFACE_LINK_OPTIONS.
+            if tgt_func == 'static_library':
+                dep_kwargs['link_args'] = tgt.link_flags + tgt.link_libraries
+            else:
+                dep_kwargs['link_args'] = tgt.public_link_flags
 
             if dependencies:
                 generated += dependencies

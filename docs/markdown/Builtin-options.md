@@ -91,7 +91,7 @@ machine](#specifying-options-per-machine) section for details.
 | strip                                  | false         | Strip targets on install                                       | no             | no                |
 | unity {on, off, subprojects}           | off           | Unity build                                                    | no             | no                |
 | unity_size {>=2}                       | 4             | Unity file block size                                          | no             | no                |
-| warning_level {0, 1, 2, 3, everything} | 1             | Set the warning level. From 0 = none to everything = highest   | no             | yes               |
+| warning_level {0, 1, 2, 3, everything} | 1             | Set the warning level. From 0 = compiler default to everything = highest | no   | yes               |
 | werror                                 | false         | Treat warnings as errors                                       | no             | yes               |
 | wrap_mode {default, nofallback,<br>nodownload, forcefallback, nopromote} | default | Wrap mode to use                   | no             | no                |
 | force_fallback_for                     | []            | Force fallback for those dependencies                          | no             | no                |
@@ -280,11 +280,11 @@ All these `<lang>_*` options are specified per machine. See below in
 the [specifying options per machine](#specifying-options-per-machine)
 section on how to do this in cross builds.
 
-When using MSVC, `cpp_eh=none` will result in no exception flags being
-passed, while the `cpp_eh=[value]` will result in `/EH[value]`. Since
-*0.51.0* `cpp_eh=default` will result in `/EHsc` on MSVC. When using
-gcc-style compilers, nothing is passed (allowing exceptions to work),
-while `cpp_eh=none` passes `-fno-exceptions`.
+When using MSVC, `cpp_eh=[value]` will result in `/EH[value]` being passed.
+The magic value `none` translates to `s-c-` to disable exceptions. *Since
+0.51.0* `default` translates to `sc`. When using gcc-style compilers, nothing
+is passed (allowing exceptions to work), while `cpp_eh=none` passes
+`-fno-exceptions`.
 
 Since *0.54.0* The `<lang>_thread_count` option can be used to control
 the value passed to `-s PTHREAD_POOL_SIZE` when using emcc. No other
@@ -408,7 +408,8 @@ interpreter directly, even if it is a venv. Setting to `venv` will instead use
 the paths for the virtualenv the python found installation comes from (or fail
 if it is not a virtualenv).  Setting to `auto` will check if the found
 installation is a virtualenv, and use `venv` or `system` as appropriate (but
-never `prefix`). This option is mutually exclusive with the `platlibdir`/`purelibdir`.
+never `prefix`). Note that Conda environments are treated as `system`.
+This option is mutually exclusive with the `platlibdir`/`purelibdir`.
 
 For backwards compatibility purposes, the default `install_env` is `prefix`.
 

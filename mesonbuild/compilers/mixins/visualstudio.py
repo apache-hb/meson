@@ -15,6 +15,7 @@ from ... import arglist
 from ... import mesonlib
 from ... import mlog
 from mesonbuild.compilers.compilers import CompileCheckMode
+from ...options import OptionKey
 
 if T.TYPE_CHECKING:
     from ...environment import Environment
@@ -110,7 +111,7 @@ class VisualStudioLikeCompiler(Compiler, metaclass=abc.ABCMeta):
     INVOKES_LINKER = False
 
     def __init__(self, target: str):
-        self.base_options = {mesonlib.OptionKey(o) for o in ['b_pch', 'b_ndebug', 'b_vscrt']} # FIXME add lto, pgo and the like
+        self.base_options = {OptionKey(o) for o in ['b_pch', 'b_ndebug', 'b_vscrt']} # FIXME add lto, pgo and the like
         self.target = target
         self.is_64 = ('x64' in target) or ('x86_64' in target)
         # do some canonicalization of target machine
@@ -125,7 +126,7 @@ class VisualStudioLikeCompiler(Compiler, metaclass=abc.ABCMeta):
         else:
             self.machine = target
         if mesonlib.version_compare(self.version, '>=19.28.29910'): # VS 16.9.0 includes cl 19.28.29910
-            self.base_options.add(mesonlib.OptionKey('b_sanitize'))
+            self.base_options.add(OptionKey('b_sanitize'))
         assert self.linker is not None
         self.linker.machine = self.machine
 
@@ -204,10 +205,10 @@ class VisualStudioLikeCompiler(Compiler, metaclass=abc.ABCMeta):
         objname = os.path.splitext(source)[0] + '.obj'
         return objname, ['/Yc' + header, '/Fp' + pchname, '/Fo' + objname]
 
-    def openmp_flags(self) -> T.List[str]:
+    def openmp_flags(self, env: Environment) -> T.List[str]:
         return ['/openmp']
 
-    def openmp_link_flags(self) -> T.List[str]:
+    def openmp_link_flags(self, env: Environment) -> T.List[str]:
         return []
 
     # FIXME, no idea what these should be.
@@ -483,3 +484,10 @@ class ClangClCompiler(VisualStudioLikeCompiler):
             return converted
         else:
             return dep.get_compile_args()
+
+    def openmp_link_flags(self, env: Environment) -> T.List[str]:
+        # see https://github.com/mesonbuild/meson/issues/5298
+        libs = self.find_library('libomp', env, [])
+        if libs is None:
+            raise mesonlib.MesonBugException('Could not find libomp')
+        return super().openmp_link_flags(env) + libs

@@ -41,11 +41,12 @@ from mesonbuild.compilers import compiler_from_language
 from mesonbuild.build import ConfigurationData
 from mesonbuild.mesonlib import MachineChoice, Popen_safe, TemporaryDirectoryWinProof, setup_vsenv
 from mesonbuild.mlog import blue, bold, cyan, green, red, yellow, normal_green
-from mesonbuild.coredata import backendlist, version as meson_version
+from mesonbuild.coredata import version as meson_version
+from mesonbuild.options import backendlist
 from mesonbuild.modules.python import PythonExternalProgram
 from run_tests import (
     get_fake_options, run_configure, get_meson_script, get_backend_commands,
-    get_backend_args_for_dir, Backend, ensure_backend_detects_changes,
+    get_backend_args_for_dir, Backend,
     guess_backend, handle_meson_skip_test,
 )
 
@@ -277,6 +278,7 @@ class TestDef:
         self.stdout: T.List[T.Dict[str, str]] = []
         self.skip_category = skip_category
         self.skip_expected = False
+        self.cleanup: T.List[str] = []
 
         # Always print a stack trace for Meson exceptions
         self.env['MESON_FORCE_BACKTRACE'] = '1'
@@ -723,7 +725,6 @@ def _run_test(test: TestDef,
 
     # Touch the meson.build file to force a regenerate
     def force_regenerate() -> None:
-        ensure_backend_detects_changes(backend)
         os.utime(str(test.path / 'meson.build'))
 
     # just test building
@@ -844,6 +845,8 @@ def load_test_json(t: TestDef, stdout_mandatory: bool, skip_category: bool = Fal
 
     (t.skip, t.skip_expected) = _skip_keys(test_def)
 
+    cleanup = test_def.get('cleanup', [])
+
     # Skip tests if the tool requirements are not met
     if 'tools' in test_def:
         assert isinstance(test_def['tools'], dict)
@@ -859,6 +862,7 @@ def load_test_json(t: TestDef, stdout_mandatory: bool, skip_category: bool = Fal
         t.installed_files = installed
         t.do_not_set_opts = do_not_set_opts
         t.stdout = stdout
+        t.cleanup = cleanup
         return [t]
 
     new_opt_list: T.List[T.List[T.Tuple[str, str, bool, bool]]]
@@ -928,6 +932,8 @@ def load_test_json(t: TestDef, stdout_mandatory: bool, skip_category: bool = Fal
         test.do_not_set_opts = do_not_set_opts
         test.stdout = stdout
         test.skip_expected = skip_expected or t.skip_expected
+        test.cleanup = cleanup
+
         all_tests.append(test)
 
     return all_tests
@@ -1080,6 +1086,7 @@ def detect_tests_to_run(only: T.Dict[str, T.List[str]], use_tmp: bool) -> T.List
     """
 
     skip_fortran = not(shutil.which('gfortran') or
+                       shutil.which('flang-new') or
                        shutil.which('flang') or
                        shutil.which('pgfortran') or
                        shutil.which('nagfor') or
@@ -1393,6 +1400,13 @@ def _run_tests(all_tests: T.List[T.Tuple[str, T.List[TestDef], bool]],
         else:
             f.update_log(TestStatus.OK)
             passing_tests += 1
+            for cleanup_path in t.cleanup:
+                assert not os.path.isabs(cleanup_path)
+                abspath = t.path / cleanup_path
+                if abspath.is_file():
+                    mesonlib.windows_proof_rm(abspath)
+                else:
+                    mesonlib.windows_proof_rmtree(abspath)
         conf_time += result.conftime
         build_time += result.buildtime
         test_time += result.testtime
@@ -1500,7 +1514,7 @@ class ToolInfo(T.NamedTuple):
     regex: T.Pattern
     match_group: int
 
-def print_tool_versions() -> None:
+def detect_tools(report: bool = True) -> None:
     tools: T.List[ToolInfo] = [
         ToolInfo(
             'ninja',
@@ -1540,6 +1554,11 @@ def print_tool_versions() -> None:
 
         return f'{exe} (unknown)'
 
+    if not report:
+        for tool in tools:
+            get_version(tool)
+        return
+
     print()
     print('tools')
     print()
@@ -1550,7 +1569,7 @@ def print_tool_versions() -> None:
     print()
 
 tmpdir = list(Path('.').glob('test cases/**/*install functions and follow symlinks'))
-assert(len(tmpdir) == 1)
+assert len(tmpdir) == 1
 symlink_test_dir = tmpdir[0]
 symlink_file1 = symlink_test_dir / 'foo/link1'
 symlink_file2 = symlink_test_dir / 'foo/link2.h'
@@ -1633,7 +1652,7 @@ if __name__ == '__main__':
         print('VSCMD version', os.environ['VSCMD_VER'])
     setup_commands(options.backend)
     detect_system_compiler(options)
-    print_tool_versions()
+    detect_tools()
     script_dir = os.path.split(__file__)[0]
     if script_dir != '':
         os.chdir(script_dir)

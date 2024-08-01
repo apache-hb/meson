@@ -6,7 +6,7 @@ from __future__ import annotations
 import typing as T
 import os
 
-from .. import coredata
+from .. import options
 from .compilers import (
     clike_debug_args,
     Compiler,
@@ -21,7 +21,7 @@ from .mixins.pgi import PGICompiler
 
 from mesonbuild.mesonlib import (
     version_compare, MesonException,
-    LibType, OptionKey,
+    LibType,
 )
 
 if T.TYPE_CHECKING:
@@ -59,8 +59,8 @@ class FortranCompiler(CLikeCompiler, Compiler):
         return cargs, largs
 
     def sanity_check(self, work_dir: str, environment: 'Environment') -> None:
-        source_name = 'sanitycheckf.f90'
-        code = 'program main; print *, "Fortran compilation is working."; end program\n'
+        source_name = 'sanitycheckf.f'
+        code = '      PROGRAM MAIN\n      PRINT *, "Fortran compilation is working."\n      END\n'
         return self._sanity_check_impl(work_dir, environment, source_name, code)
 
     def get_optimization_args(self, optimization_level: str) -> T.List[str]:
@@ -114,8 +114,8 @@ class FortranCompiler(CLikeCompiler, Compiler):
     def get_options(self) -> 'MutableKeyedOptionDictType':
         return self.update_options(
             super().get_options(),
-            self.create_option(coredata.UserComboOption,
-                               OptionKey('std', machine=self.for_machine, lang=self.language),
+            self.create_option(options.UserComboOption,
+                               self.form_compileropt_key('std'),
                                'Fortran language standard to use',
                                ['none'],
                                'none'),
@@ -147,16 +147,16 @@ class GnuFortranCompiler(GnuCompiler, FortranCompiler):
             fortran_stds += ['f2008']
         if version_compare(self.version, '>=8.0.0'):
             fortran_stds += ['f2018']
-        key = OptionKey('std', machine=self.for_machine, lang=self.language)
+        key = self.form_compileropt_key('std')
         opts[key].choices = ['none'] + fortran_stds
         return opts
 
     def get_option_compile_args(self, options: 'KeyedOptionDictType') -> T.List[str]:
         args: T.List[str] = []
-        key = OptionKey('std', machine=self.for_machine, lang=self.language)
-        std = options[key]
-        if std.value != 'none':
-            args.append('-std=' + std.value)
+        key = self.form_compileropt_key('std')
+        std = options.get_value(key)
+        if std != 'none':
+            args.append('-std=' + std)
         return args
 
     def get_dependency_gen_args(self, outtarget: str, outfile: str) -> T.List[str]:
@@ -205,7 +205,7 @@ class ElbrusFortranCompiler(ElbrusCompiler, FortranCompiler):
     def get_options(self) -> 'MutableKeyedOptionDictType':
         opts = FortranCompiler.get_options(self)
         fortran_stds = ['f95', 'f2003', 'f2008', 'gnu', 'legacy', 'f2008ts']
-        key = OptionKey('std', machine=self.for_machine, lang=self.language)
+        key = self.form_compileropt_key('std')
         opts[key].choices = ['none'] + fortran_stds
         return opts
 
@@ -256,7 +256,7 @@ class SunFortranCompiler(FortranCompiler):
     def get_module_outdir_args(self, path: str) -> T.List[str]:
         return ['-moddir=' + path]
 
-    def openmp_flags(self) -> T.List[str]:
+    def openmp_flags(self, env: Environment) -> T.List[str]:
         return ['-xopenmp']
 
 
@@ -284,21 +284,24 @@ class IntelFortranCompiler(IntelGnuLikeCompiler, FortranCompiler):
 
     def get_options(self) -> 'MutableKeyedOptionDictType':
         opts = FortranCompiler.get_options(self)
-        key = OptionKey('std', machine=self.for_machine, lang=self.language)
+        key = self.form_compileropt_key('std')
         opts[key].choices = ['none', 'legacy', 'f95', 'f2003', 'f2008', 'f2018']
         return opts
 
     def get_option_compile_args(self, options: 'KeyedOptionDictType') -> T.List[str]:
         args: T.List[str] = []
-        key = OptionKey('std', machine=self.for_machine, lang=self.language)
-        std = options[key]
+        key = self.form_compileropt_key('std')
+        std = options.get_value(key)
         stds = {'legacy': 'none', 'f95': 'f95', 'f2003': 'f03', 'f2008': 'f08', 'f2018': 'f18'}
-        if std.value != 'none':
-            args.append('-stand=' + stds[std.value])
+        if std != 'none':
+            args.append('-stand=' + stds[std])
         return args
 
     def get_preprocess_only_args(self) -> T.List[str]:
         return ['-cpp', '-EP']
+
+    def get_werror_args(self) -> T.List[str]:
+        return ['-warn', 'errors']
 
     def language_stdlib_only_link_flags(self, env: 'Environment') -> T.List[str]:
         # TODO: needs default search path added
@@ -336,18 +339,21 @@ class IntelClFortranCompiler(IntelVisualStudioLikeCompiler, FortranCompiler):
 
     def get_options(self) -> 'MutableKeyedOptionDictType':
         opts = FortranCompiler.get_options(self)
-        key = OptionKey('std', machine=self.for_machine, lang=self.language)
+        key = self.form_compileropt_key('std')
         opts[key].choices = ['none', 'legacy', 'f95', 'f2003', 'f2008', 'f2018']
         return opts
 
     def get_option_compile_args(self, options: 'KeyedOptionDictType') -> T.List[str]:
         args: T.List[str] = []
-        key = OptionKey('std', machine=self.for_machine, lang=self.language)
-        std = options[key]
+        key = self.form_compileropt_key('std')
+        std = options.get_value(key)
         stds = {'legacy': 'none', 'f95': 'f95', 'f2003': 'f03', 'f2008': 'f08', 'f2018': 'f18'}
-        if std.value != 'none':
-            args.append('/stand:' + stds[std.value])
+        if std != 'none':
+            args.append('/stand:' + stds[std])
         return args
+
+    def get_werror_args(self) -> T.List[str]:
+        return ['/warn:errors']
 
     def get_module_outdir_args(self, path: str) -> T.List[str]:
         return ['/module:' + path]
@@ -375,7 +381,7 @@ class PathScaleFortranCompiler(FortranCompiler):
                           '3': default_warn_args,
                           'everything': default_warn_args}
 
-    def openmp_flags(self) -> T.List[str]:
+    def openmp_flags(self, env: Environment) -> T.List[str]:
         return ['-mp']
 
 
@@ -424,7 +430,7 @@ class NvidiaHPC_FortranCompiler(PGICompiler, FortranCompiler):
                           'everything': default_warn_args + ['-Mdclchk']}
 
 
-class FlangFortranCompiler(ClangCompiler, FortranCompiler):
+class ClassicFlangFortranCompiler(ClangCompiler, FortranCompiler):
 
     id = 'flang'
 
@@ -454,9 +460,61 @@ class FlangFortranCompiler(ClangCompiler, FortranCompiler):
             search_dirs.append(f'-L{d}')
         return search_dirs + ['-lflang', '-lpgmath']
 
-class ArmLtdFlangFortranCompiler(FlangFortranCompiler):
+
+class ArmLtdFlangFortranCompiler(ClassicFlangFortranCompiler):
 
     id = 'armltdflang'
+
+
+class LlvmFlangFortranCompiler(ClangCompiler, FortranCompiler):
+
+    id = 'llvm-flang'
+
+    def __init__(self, exelist: T.List[str], version: str, for_machine: MachineChoice, is_cross: bool,
+                 info: 'MachineInfo', linker: T.Optional['DynamicLinker'] = None,
+                 full_version: T.Optional[str] = None):
+        FortranCompiler.__init__(self, exelist, version, for_machine,
+                                 is_cross, info, linker=linker,
+                                 full_version=full_version)
+        ClangCompiler.__init__(self, {})
+        default_warn_args = ['-Wall']
+        self.warn_args = {'0': [],
+                          '1': default_warn_args,
+                          '2': default_warn_args,
+                          '3': default_warn_args,
+                          'everything': default_warn_args}
+
+    def get_colorout_args(self, colortype: str) -> T.List[str]:
+        # not yet supported, see https://github.com/llvm/llvm-project/issues/89888
+        return []
+
+    def get_dependency_gen_args(self, outtarget: str, outfile: str) -> T.List[str]:
+        # not yet supported, see https://github.com/llvm/llvm-project/issues/89888
+        return []
+
+    def get_module_outdir_args(self, path: str) -> T.List[str]:
+        # different syntax from classic flang (which supported `-module`), see
+        # https://github.com/llvm/llvm-project/issues/66969
+        return ['-module-dir', path]
+
+    def gnu_symbol_visibility_args(self, vistype: str) -> T.List[str]:
+        # flang doesn't support symbol visibility flag yet, see
+        # https://github.com/llvm/llvm-project/issues/92459
+        return []
+
+    def language_stdlib_only_link_flags(self, env: 'Environment') -> T.List[str]:
+        # matching setup from ClassicFlangFortranCompiler
+        search_dirs: T.List[str] = []
+        for d in self.get_compiler_dirs(env, 'libraries'):
+            search_dirs.append(f'-L{d}')
+        # does not automatically link to Fortran_main anymore after
+        # https://github.com/llvm/llvm-project/commit/9d6837d595719904720e5ff68ec1f1a2665bdc2f
+        # note that this changed again in flang 19 with
+        # https://github.com/llvm/llvm-project/commit/8d5386669ed63548daf1bee415596582d6d78d7d;
+        # it seems flang 18 doesn't work if something accidentally includes a program unit, see
+        # https://github.com/llvm/llvm-project/issues/92496
+        return search_dirs + ['-lFortranRuntime', '-lFortranDecimal']
+
 
 class Open64FortranCompiler(FortranCompiler):
 
@@ -476,7 +534,7 @@ class Open64FortranCompiler(FortranCompiler):
                           '3': default_warn_args,
                           'everything': default_warn_args}
 
-    def openmp_flags(self) -> T.List[str]:
+    def openmp_flags(self, env: Environment) -> T.List[str]:
         return ['-mp']
 
 
@@ -519,5 +577,5 @@ class NAGFortranCompiler(FortranCompiler):
     def get_std_exe_link_args(self) -> T.List[str]:
         return self.get_always_args()
 
-    def openmp_flags(self) -> T.List[str]:
+    def openmp_flags(self, env: Environment) -> T.List[str]:
         return ['-openmp']
